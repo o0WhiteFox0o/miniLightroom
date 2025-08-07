@@ -3,8 +3,9 @@ from PyQt5.QtWidgets import (
     QLabel, QSlider, QFileDialog
 )
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPixmap, QImage
+from PyQt5.QtGui import QPixmap, QImage, QColor, QPainter, QPen
 import cv2
+import numpy as np
 from editor.image_editor import ImageEditor
 from utils.file_io import open_image_file, save_image_file
 
@@ -15,6 +16,12 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Simple Photo Editor")
         self.image_editor = ImageEditor()
         self.init_ui()
+        self.brush_enabled = False
+        self.brush_color = QColor("red")
+        self.brush_size = 10
+
+        self.last_point = None  # To track last position when drawing
+        self.drawing_layer = None  # Layer for drawing
 
     def init_ui(self):
         self.image_label = QLabel("Open an image to start")
@@ -27,6 +34,13 @@ class MainWindow(QMainWindow):
         btn_open = QPushButton("Open Image")
         btn_open.clicked.connect(self.open_image)
 
+        brush_btn = QPushButton("Brush")
+        brush_btn.clicked.connect(self.toggle_brush)
+
+        save_btn = QPushButton("Save")
+        save_btn.clicked.connect(self.sync_pixmap_to_image)
+
+
         btn_rotate = QPushButton("Rotate 90°")
         btn_rotate.clicked.connect(self.rotate_image)
 
@@ -36,7 +50,7 @@ class MainWindow(QMainWindow):
         btn_redo = QPushButton("Redo")
         btn_redo.clicked.connect(self.redo_edit)
 
-        btn_crop = QPushButton("Crop Center")
+        btn_crop = QPushButton("Crop")
         btn_crop.clicked.connect(self.crop_image)
 
         btn_save = QPushButton("Export")
@@ -53,6 +67,8 @@ class MainWindow(QMainWindow):
 
         button_layout = QHBoxLayout()
         button_layout.addWidget(btn_open)
+        button_layout.addWidget(brush_btn)
+        button_layout.addWidget(save_btn)
         button_layout.addWidget(btn_rotate)
         button_layout.addWidget(btn_undo)
         button_layout.addWidget(btn_redo)
@@ -100,6 +116,45 @@ class MainWindow(QMainWindow):
     def rotate_image(self):
         self.image_editor.rotate()
         self.update_image()
+
+    def sync_pixmap_to_image(self):
+        pixmap = self.image_label.pixmap()
+        if pixmap:
+            qimg = pixmap.toImage().convertToFormat(QImage.Format_BGR888)
+            width, height = qimg.width(), qimg.height()
+            ptr = qimg.bits()
+            ptr.setsize(qimg.byteCount())
+            arr = np.array(ptr, dtype=np.uint8).reshape((height, width, 3))
+            if hasattr(self.image_editor, "set_image"):
+                self.image_editor.set_image(arr.copy())
+            else:
+                print("ImageEditor chưa có hàm set_image")
+
+
+    def toggle_brush(self):
+        self.brush_enabled = not self.brush_enabled
+        print("Brush:", "ON" if self.brush_enabled else "OFF")
+
+    def mousePressEvent(self, event):
+        if self.brush_enabled and event.button() == Qt.LeftButton:
+            self.last_point = event.pos()
+
+    def mouseMoveEvent(self, event):
+        if self.brush_enabled and self.last_point:
+            painter = QPainter(self.image_label.pixmap())
+            pen = QPen(self.brush_color, self.brush_size, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+            painter.setPen(pen)
+            painter.drawLine(self.last_point, event.pos())
+            painter.end()
+
+            self.last_point = event.pos()
+            self.image_label.update()
+
+
+
+    def mouseReleaseEvent(self, event):
+        if self.brush_enabled and event.button() == Qt.LeftButton:
+            self.last_point = None
 
     def undo_edit(self):
         img = self.image_editor.undo()
